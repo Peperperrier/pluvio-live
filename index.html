@@ -242,7 +242,6 @@
             if (viewType === 'day') {
                 dates.push(formatDate(ref));
             } else if (viewType === 'last30') {
-                // Les 30 derniers jours à partir de la date de référence
                 for (let i = 29; i >= 0; i--) {
                     const d = new Date(ref);
                     d.setDate(d.getDate() - i);
@@ -283,35 +282,43 @@
             }
         }
 
-        function extractPrecipitationByHour(data) {
+        // Extraction de precipRate pour affichage heure par heure
+        function extractPrecipRateByHour(data) {
             if (!data || !data.observations) return {};
             
             const hourlyData = {};
             
             data.observations.forEach(obs => {
-                if (obs.obsTimeLocal && obs.metric && obs.metric.precipTotal !== undefined && obs.metric.precipTotal !== null) {
+                if (obs.obsTimeLocal && obs.metric && obs.metric.precipRate !== undefined && obs.metric.precipRate !== null) {
                     const hour = new Date(obs.obsTimeLocal).getHours();
-                    if (!hourlyData[hour]) {
-                        hourlyData[hour] = 0;
+                    const rate = parseFloat(obs.metric.precipRate);
+                    
+                    // Prendre la valeur maximale de precipRate pour chaque heure
+                    if (!hourlyData[hour] || rate > hourlyData[hour]) {
+                        hourlyData[hour] = rate;
                     }
-                    hourlyData[hour] += parseFloat(obs.metric.precipTotal);
                 }
             });
             
             return hourlyData;
         }
 
-        function extractDailyPrecipitation(data) {
-            if (!data || !data.observations) return 0;
+        // Extraction de precipTotal (cumul journalier) pour les totaux
+        function extractPrecipTotal(data) {
+            if (!data || !data.observations || data.observations.length === 0) return 0;
             
-            let totalPrecip = 0;
+            // precipTotal est déjà cumulatif, on prend la valeur maximale (dernière observation)
+            let maxPrecip = 0;
             data.observations.forEach(obs => {
                 if (obs.metric && obs.metric.precipTotal !== undefined && obs.metric.precipTotal !== null) {
-                    totalPrecip += parseFloat(obs.metric.precipTotal);
+                    const precip = parseFloat(obs.metric.precipTotal);
+                    if (precip > maxPrecip) {
+                        maxPrecip = precip;
+                    }
                 }
             });
             
-            return totalPrecip;
+            return maxPrecip;
         }
 
         async function fetchData() {
@@ -338,8 +345,9 @@
             // Initialiser les données pour chaque station
             for (const station of STATIONS) {
                 stationsData[station.id] = {
-                    data: viewType === 'day' ? {} : [],
-                    total: 0
+                    hourlyRates: viewType === 'day' ? {} : null,  // precipRate par heure
+                    dailyTotals: viewType === 'last30' ? [] : null,  // precipTotal par jour
+                    total: 0  // Somme des precipTotal
                 };
             }
             
@@ -354,19 +362,32 @@
                 for (const station of STATIONS) {
                     const data = await fetchStationData(station.id, date, API_KEY);
                     
+                    if (!data) continue;
+                    
+                    // Toujours extraire precipTotal pour le cumul
+                    const dailyTotal = extractPrecipTotal(data);
+                    stationsData[station.id].total += dailyTotal;
+                    
                     if (viewType === 'day') {
-                        const hourlyData = extractPrecipitationByHour(data);
-                        for (const [hour, precip] of Object.entries(hourlyData)) {
-                            if (!stationsData[station.id].data[hour]) {
-                                stationsData[station.id].data[hour] = 0;
+                        // Pour la vue jour : extraire precipRate par heure
+                        const hourlyRates = extractPrecipRateByHour(data);
+                        for (const [hour, rate] of Object.entries(hourlyRates)) {
+                            if (!stationsData[station.id].hourlyRates[hour]) {
+                                stationsData[station.id].hourlyRates[hour] = rate;
+                            } else {
+                                // Prendre le max si plusieurs valeurs
+                                stationsData[station.id].hourlyRates[hour] = Math.max(
+                                    stationsData[station.id].hourlyRates[hour],
+                                    rate
+                                );
                             }
-                            stationsData[station.id].data[hour] += precip;
-                            stationsData[station.id].total += precip;
                         }
                     } else {
-                        const dailyPrecip = extractDailyPrecipitation(data);
-                        stationsData[station.id].data.push({ date, precip: dailyPrecip });
-                        stationsData[station.id].total += dailyPrecip;
+                        // Pour la vue 30 jours : stocker precipTotal par jour
+                        stationsData[station.id].dailyTotals.push({ 
+                            date, 
+                            total: dailyTotal 
+                        });
                     }
                 }
             }
@@ -378,7 +399,7 @@
             const resultsDiv = document.getElementById('results');
             let html = '';
             
-            // Cartes de résumé
+            // Cartes de résumé (toujours precipTotal)
             html += '<div class="summary-cards">';
             for (const station of STATIONS) {
                 html += `
@@ -390,7 +411,7 @@
             }
             html += '</div>';
             
-            // Graphique unique
+            // Graphique
             html += `
                 <div class="chart-container">
                     <canvas id="mainChart"></canvas>
@@ -404,7 +425,7 @@
             if (viewType === 'day') {
                 html += '<th>Heure</th>';
                 for (const station of STATIONS) {
-                    html += `<th class="station-color-${station.id.toLowerCase()}">${station.id}</th>`;
+                    html += `<th class="station-color-${station.id.toLowerCase()}">${station.id} (mm/h)</th>`;
                 }
                 html += '</tr></thead><tbody>';
                 
@@ -413,9 +434,9 @@
                     let rowData = '';
                     
                     for (const station of STATIONS) {
-                        const precip = stationsData[station.id].data[hour] || 0;
-                        if (precip > 0) hasData = true;
-                        rowData += `<td>${precip.toFixed(2)} mm</td>`;
+                        const rate = stationsData[station.id].hourlyRates[hour] || 0;
+                        if (rate > 0) hasData = true;
+                        rowData += `<td>${rate.toFixed(2)}</td>`;
                     }
                     
                     if (hasData) {
@@ -425,21 +446,21 @@
             } else {
                 html += '<th>Date</th>';
                 for (const station of STATIONS) {
-                    html += `<th class="station-color-${station.id.toLowerCase()}">${station.id}</th>`;
+                    html += `<th class="station-color-${station.id.toLowerCase()}">${station.id} (mm)</th>`;
                 }
                 html += '</tr></thead><tbody>';
                 
-                const dates = stationsData[STATIONS[0].id].data.map(d => d.date);
+                const dates = stationsData[STATIONS[0].id].dailyTotals.map(d => d.date);
                 
                 dates.forEach(date => {
                     let hasData = false;
                     let rowData = '';
                     
                     for (const station of STATIONS) {
-                        const entry = stationsData[station.id].data.find(d => d.date === date);
-                        const precip = entry ? entry.precip : 0;
-                        if (precip > 0) hasData = true;
-                        rowData += `<td>${precip.toFixed(2)} mm</td>`;
+                        const entry = stationsData[station.id].dailyTotals.find(d => d.date === date);
+                        const total = entry ? entry.total : 0;
+                        if (total > 0) hasData = true;
+                        rowData += `<td>${total.toFixed(2)}</td>`;
                     }
                     
                     if (hasData) {
@@ -473,7 +494,7 @@
                 
                 for (const station of STATIONS) {
                     const data = Array.from({length: 24}, (_, hour) => 
-                        stationsData[station.id].data[hour] || 0
+                        stationsData[station.id].hourlyRates[hour] || 0
                     );
                     
                     datasets.push({
@@ -488,10 +509,10 @@
                 }
             } else {
                 // Labels: dates
-                labels = stationsData[STATIONS[0].id].data.map(d => formatDisplayDate(d.date));
+                labels = stationsData[STATIONS[0].id].dailyTotals.map(d => formatDisplayDate(d.date));
                 
                 for (const station of STATIONS) {
-                    const data = stationsData[station.id].data.map(d => d.precip);
+                    const data = stationsData[station.id].dailyTotals.map(d => d.total);
                     
                     datasets.push({
                         label: station.id,
@@ -521,7 +542,7 @@
                         },
                         title: {
                             display: true,
-                            text: viewType === 'day' ? 'Précipitations heure par heure' : 'Précipitations sur 30 jours',
+                            text: viewType === 'day' ? 'Taux de précipitations (mm/h)' : 'Cumul journalier des précipitations (mm)',
                             font: {
                                 size: 16,
                                 weight: 'bold'
@@ -533,7 +554,7 @@
                             beginAtZero: true,
                             title: {
                                 display: true,
-                                text: 'Précipitations (mm)'
+                                text: viewType === 'day' ? 'Taux (mm/h)' : 'Cumul (mm)'
                             }
                         },
                         x: {
