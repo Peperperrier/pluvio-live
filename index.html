@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#667eea">
     <title>Historique des Précipitations</title>
     <style>
         * {
@@ -24,14 +25,14 @@
             background: white;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            padding: 30px;
+            padding: 20px;  /* Réduit de 30px à 20px pour mobile */
         }
 
         h1 {
             text-align: center;
             color: #333;
-            margin-bottom: 30px;
-            font-size: 2.5em;
+            margin-bottom: 20px;  /* Réduit de 30px à 20px */
+            font-size: clamp(1.5em, 5vw, 2.5em);  /* Taille responsive */
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -39,10 +40,10 @@
 
         .controls {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: 1fr;  /* Une colonne sur mobile */
+            gap: 15px;  /* Réduit de 20px à 15px */
             margin-bottom: 30px;
-            padding: 20px;
+            padding: 15px;  /* Réduit de 20px à 15px */
             background: #f8f9fa;
             border-radius: 15px;
         }
@@ -108,9 +109,15 @@
 
         .summary-cards {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
+            grid-template-columns: 1fr;  /* Une colonne sur mobile */
+            gap: 15px;  /* Réduit de 20px à 15px */
             margin-bottom: 30px;
+        }
+
+        @media (min-width: 600px) {
+            .summary-cards {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            }
         }
 
         .summary-card {
@@ -128,20 +135,25 @@
         }
 
         .summary-card .value {
-            font-size: 2em;
+            font-size: 1.5em;  /* Réduit de 2em à 1.5em */
             font-weight: 700;
         }
 
         .chart-container {
-            padding: 25px;
+            padding: 15px;
             background: white;
             border-radius: 15px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            min-height: 300px; /* Ajout d'une hauteur minimale */
+            position: relative; /* Important pour Chart.js */
         }
 
         canvas {
-            max-height: 400px;
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 250px;
         }
 
         .data-table {
@@ -151,12 +163,14 @@
             border-radius: 10px;
             overflow: hidden;
             box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            font-size: 0.9em;  /* Texte légèrement plus petit sur mobile */
+            min-width: 600px;  /* Pour assurer la lisibilité des données */
         }
 
         .data-table th {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 15px;
+            padding: 8px;  /* Réduit de 12-15px à 8px */
             text-align: left;
             font-weight: 600;
             text-transform: uppercase;
@@ -164,7 +178,7 @@
         }
 
         .data-table td {
-            padding: 12px 15px;
+            padding: 8px;  /* Réduit de 12-15px à 8px */
             border-bottom: 1px solid #f0f0f0;
         }
 
@@ -191,6 +205,21 @@
         .station-color-icussa12 { color: #667eea; }
         .station-color-icussa10 { color: #f97316; }
         .station-color-icussa13 { color: #10b981; }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;  /* Réduit de 20px à 10px */
+            }
+
+            .summary-card {
+                padding: 15px;  /* Réduit de 20px à 15px */
+            }
+
+            button {
+                width: 100%;  /* Bouton pleine largeur sur mobile */
+                padding: 10px 20px;  /* Réduit de 12px 30px à 10px 20px */
+            }
+        }
     </style>
 </head>
 <body>
@@ -534,43 +563,84 @@
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: true,
+                    maintainAspectRatio: false, // Changé en false pour permettre une hauteur dynamique
                     plugins: {
                         legend: {
                             display: true,
-                            position: 'top'
-                        },
-                        title: {
-                            display: true,
-                            text: viewType === 'day' ? 'Taux de précipitations (mm/h)' : 'Cumul journalier des précipitations (mm)',
-                            font: {
-                                size: 16,
-                                weight: 'bold'
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: viewType === 'day' ? 'Taux (mm/h)' : 'Cumul (mm)'
+                            position: 'top',
+                            labels: {
+                                boxWidth: 12, // Réduction de la taille des légendes sur mobile
+                                padding: 10
                             }
                         },
-                        x: {
-                            ticks: {
-                                maxRotation: 45,
-                                minRotation: 45
-                            }
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            padding: 10,
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            titleColor: '#333',
+                            bodyColor: '#666',
+                            borderColor: '#ddd',
+                            borderWidth: 1,
+                            caretSize: 6,
+                            caretPadding: 10
                         }
                     },
                     interaction: {
-                        intersect: false,
-                        mode: 'index'
+                        mode: 'nearest',
+                        intersect: true
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: viewType === 'day' ? 'Heures' : 'Dates',
+                                color: '#333',
+                                font: {
+                                    weight: 'bold',
+                                    size: 14
+                                },
+                                padding: { top: 10, left: 10, right: 10, bottom: 0 }
+                            },
+                            ticks: {
+                                color: '#666',
+                                padding: 10
+                            },
+                            grid: {
+                                color: '#e0e0e0',
+                                lineWidth: 1
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Précipitations (mm)',
+                                color: '#333',
+                                font: {
+                                    weight: 'bold',
+                                    size: 14
+                                },
+                                padding: { top: 10, left: 10, right: 10, bottom: 0 }
+                            },
+                            ticks: {
+                                color: '#666',
+                                padding: 10,
+                                callback: function(value) {
+                                    return value.toFixed(2);
+                                }
+                            },
+                            grid: {
+                                color: '#e0e0e0',
+                                lineWidth: 1
+                            }
+                        }
                     }
                 }
             });
         }
+
+        // Chargement initial des données
+        fetchData();
     </script>
 </body>
 </html>
