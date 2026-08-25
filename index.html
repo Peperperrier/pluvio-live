@@ -311,24 +311,34 @@
             }
         }
 
-        // Extraction de precipRate pour affichage heure par heure
+        // Extraction des précipitations horaires à partir du cumul journalier
         function extractPrecipRateByHour(data) {
             if (!data || !data.observations) return {};
-            
+
             const hourlyData = {};
-            
-            data.observations.forEach(obs => {
-                if (obs.obsTimeLocal && obs.metric && obs.metric.precipRate !== undefined && obs.metric.precipRate !== null) {
-                    const hour = new Date(obs.obsTimeLocal).getHours();
-                    const rate = parseFloat(obs.metric.precipRate);
-                    
-                    // Prendre la valeur maximale de precipRate pour chaque heure
-                    if (!hourlyData[hour] || rate > hourlyData[hour]) {
-                        hourlyData[hour] = rate;
-                    }
+            let previousTotal = null;
+
+            const observations = [...data.observations]
+                .filter(obs => obs && obs.obsTimeLocal && obs.metric)
+                .sort((a, b) => new Date(a.obsTimeLocal) - new Date(b.obsTimeLocal));
+
+            observations.forEach(obs => {
+                const precipTotal = obs.metric.precipTotal;
+                if (precipTotal === undefined || precipTotal === null) return;
+
+                const total = parseFloat(precipTotal);
+                if (Number.isNaN(total)) return;
+
+                const hour = new Date(obs.obsTimeLocal).getHours();
+
+                if (previousTotal !== null) {
+                    const delta = Math.max(0, total - previousTotal);
+                    hourlyData[hour] = (hourlyData[hour] || 0) + delta;
                 }
+
+                previousTotal = total;
             });
-            
+
             return hourlyData;
         }
 
