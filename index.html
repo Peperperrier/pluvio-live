@@ -360,6 +360,52 @@
             return maxPrecip;
         }
 
+        // Extraction des températures min et max du jour avec heure d'observation
+        function extractTempMinMax(data) {
+            if (!data || !data.observations || data.observations.length === 0) {
+                return { tempMin: null, tempMax: null, tempMinHour: null, tempMaxHour: null };
+            }
+            
+            let tempMin = null;
+            let tempMax = null;
+            let tempMinHour = null;
+            let tempMaxHour = null;
+            
+            data.observations.forEach(obs => {
+                // Chercher tempLow pour le minimum
+                if (obs.metric && obs.metric.tempLow !== undefined && obs.metric.tempLow !== null) {
+                    const tempLowValue = parseFloat(obs.metric.tempLow);
+                    if (!isNaN(tempLowValue)) {
+                        if (tempMin === null || tempLowValue < tempMin) {
+                            tempMin = tempLowValue;
+                            // Extraire l'heure de obsTimeLocal (format: "2026-09-08 00:04:33")
+                            if (obs.obsTimeLocal) {
+                                const timePart = obs.obsTimeLocal.split(' ')[1];
+                                tempMinHour = timePart.substring(0, 5); // "HH:MM"
+                            }
+                        }
+                    }
+                }
+                
+                // Chercher tempHigh pour le maximum
+                if (obs.metric && obs.metric.tempHigh !== undefined && obs.metric.tempHigh !== null) {
+                    const tempHighValue = parseFloat(obs.metric.tempHigh);
+                    if (!isNaN(tempHighValue)) {
+                        if (tempMax === null || tempHighValue > tempMax) {
+                            tempMax = tempHighValue;
+                            // Extraire l'heure de obsTimeLocal (format: "2026-09-08 00:04:33")
+                            if (obs.obsTimeLocal) {
+                                const timePart = obs.obsTimeLocal.split(' ')[1];
+                                tempMaxHour = timePart.substring(0, 5); // "HH:MM"
+                            }
+                        }
+                    }
+                }
+            });
+            
+            return { tempMin, tempMax, tempMinHour, tempMaxHour };
+        }
+
         async function fetchData() {
             const viewType = document.getElementById('viewType').value;
             const dateInput = document.getElementById('dateInput').value;
@@ -386,7 +432,13 @@
                 stationsData[station.id] = {
                     hourlyRates: viewType === 'day' ? {} : null,  // precipRate par heure
                     dailyTotals: viewType === 'last30' ? [] : null,  // precipTotal par jour
-                    total: 0  // Somme des precipTotal
+                    total: 0,  // Somme des precipTotal
+                    tempMin: null,  // Température minimale du jour
+                    tempMax: null,   // Température maximale du jour
+                    tempMinHour: null,  // Heure d'observation de tempMin
+                    tempMaxHour: null,   // Heure d'observation de tempMax
+                    tempMinDate: null,  // Date d'observation de tempMin (pour vue 30 jours)
+                    tempMaxDate: null   // Date d'observation de tempMax (pour vue 30 jours)
                 };
             }
             
@@ -407,6 +459,26 @@
                     const dailyTotal = extractPrecipTotal(data);
                     stationsData[station.id].total += dailyTotal;
                     
+                    // Extraire les températures min et max avec leurs heures
+                    const temps = extractTempMinMax(data);
+                    
+                    // Mettre à jour les min/max globales pour la journée
+                    if (temps.tempMin !== null) {
+                        if (stationsData[station.id].tempMin === null || temps.tempMin < stationsData[station.id].tempMin) {
+                            stationsData[station.id].tempMin = temps.tempMin;
+                            stationsData[station.id].tempMinHour = temps.tempMinHour;
+                            stationsData[station.id].tempMinDate = date;
+                        }
+                    }
+                    
+                    if (temps.tempMax !== null) {
+                        if (stationsData[station.id].tempMax === null || temps.tempMax > stationsData[station.id].tempMax) {
+                            stationsData[station.id].tempMax = temps.tempMax;
+                            stationsData[station.id].tempMaxHour = temps.tempMaxHour;
+                            stationsData[station.id].tempMaxDate = date;
+                        }
+                    }
+                    
                     if (viewType === 'day') {
                         // Pour la vue jour : extraire precipRate par heure
                         const hourlyRates = extractPrecipRateByHour(data);
@@ -422,10 +494,14 @@
                             }
                         }
                     } else {
-                        // Pour la vue 30 jours : stocker precipTotal par jour
+                        // Pour la vue 30 jours : stocker precipTotal par jour avec températures
                         stationsData[station.id].dailyTotals.push({ 
                             date, 
-                            total: dailyTotal 
+                            total: dailyTotal,
+                            tempMin: temps.tempMin,
+                            tempMax: temps.tempMax,
+                            tempMinHour: temps.tempMinHour,
+                            tempMaxHour: temps.tempMaxHour
                         });
                     }
                 }
@@ -438,13 +514,38 @@
             const resultsDiv = document.getElementById('results');
             let html = '';
             
-            // Cartes de résumé (toujours precipTotal)
+            // Cartes de résumé (précipitations et températures)
             html += '<div class="summary-cards">';
             for (const station of STATIONS) {
+                let tempInfo = '';
+                if (stationsData[station.id].tempMin !== null || stationsData[station.id].tempMax !== null) {
+                    const tempMin = stationsData[station.id].tempMin !== null ? stationsData[station.id].tempMin.toFixed(1) : '—';
+                    const tempMax = stationsData[station.id].tempMax !== null ? stationsData[station.id].tempMax.toFixed(1) : '—';
+                    const minHour = stationsData[station.id].tempMinHour || '—';
+                    const maxHour = stationsData[station.id].tempMaxHour || '—';
+                    
+                    if (viewType === 'last30') {
+                        // Pour 30 jours: afficher la date et l'heure
+                        const minDate = stationsData[station.id].tempMinDate ? formatDisplayDate(stationsData[station.id].tempMinDate) : '—';
+                        const maxDate = stationsData[station.id].tempMaxDate ? formatDisplayDate(stationsData[station.id].tempMaxDate) : '—';
+                        tempInfo = `<div style="font-size: 0.85em; opacity: 0.9; margin-top: 8px;">
+                            🌡️ Min: ${tempMin}°C le ${minDate} à ${minHour}<br>
+                            🌡️ Max: ${tempMax}°C le ${maxDate} à ${maxHour}
+                        </div>`;
+                    } else {
+                        // Pour vue jour: afficher seulement l'heure
+                        tempInfo = `<div style="font-size: 0.85em; opacity: 0.9; margin-top: 8px;">
+                            🌡️ Min: ${tempMin}°C à ${minHour}<br>
+                            🌡️ Max: ${tempMax}°C à ${maxHour}
+                        </div>`;
+                    }
+                }
+                
                 html += `
                     <div class="summary-card">
                         <h3>📍 ${station.id}</h3>
                         <div class="value">${stationsData[station.id].total.toFixed(2)} mm</div>
+                        ${tempInfo}
                     </div>
                 `;
             }
